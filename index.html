@@ -1,0 +1,94 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Live Player Detection and Number Overlay</title>
+  <style>
+    body {
+      text-align: center;
+      background-color: #2b2b2b;
+      color: #fff;
+      font-family: Arial, sans-serif;
+    }
+    video, canvas {
+      position: absolute;
+      left: 50%;
+      top: 50%;
+      transform: translate(-50%, -50%);
+    }
+  </style>
+</head>
+<body>
+  <h1>Football Player Detection and Tracking</h1>
+  
+  <!-- Live video feed -->
+  <video id="video" width="640" height="480" autoplay playsinline muted></video>
+  <!-- Canvas for overlaying detection results -->
+  <canvas id="overlay" width="640" height="480"></canvas>
+
+  <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/posenet"></script>
+
+  <script>
+    const video = document.getElementById('video');
+    const canvas = document.getElementById('overlay');
+    const ctx = canvas.getContext('2d');
+    
+    // Load the model and start detection
+    async function detectPlayers() {
+      const net = await posenet.load();
+      
+      function detectFrame() {
+        net.estimateSinglePose(video, {
+          flipHorizontal: false
+        }).then(pose => {
+          drawPose(pose);
+          requestAnimationFrame(detectFrame);
+        });
+      }
+
+      detectFrame();
+    }
+
+    // Draw detected pose and number (this could be expanded for more complexity)
+    function drawPose(pose) {
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+      pose.keypoints.forEach(keypoint => {
+        if (keypoint.score > 0.5) {
+          const { y, x } = keypoint.position;
+          ctx.beginPath();
+          ctx.arc(x, y, 5, 0, 2 * Math.PI);
+          ctx.fillStyle = 'red';
+          ctx.fill();
+
+          // Placeholder for jersey number detection
+          // In reality, you would replace this with number detection logic
+          ctx.fillStyle = 'yellow';
+          ctx.font = '20px Arial';
+          ctx.fillText('10', x - 10, y - 15);  // Simulate jersey number
+        }
+      });
+    }
+
+    // Set up webcam feed
+    async function setupCamera() {
+      const stream = await navigator.mediaDevices.getUserMedia({
+        video: true
+      });
+      video.srcObject = stream;
+      
+      return new Promise((resolve) => {
+        video.onloadedmetadata = () => {
+          resolve(video);
+        };
+      });
+    }
+
+    setupCamera().then(() => {
+      detectPlayers();
+    });
+  </script>
+</body>
+</html>
