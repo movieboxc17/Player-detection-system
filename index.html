@@ -1,143 +1,154 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Player Detection and Jersey Number Tracking</title>
-  <style>
-    body {
-      text-align: center;
-      background-color: #2b2b2b;
-      color: #fff;
-      font-family: Arial, sans-serif;
-      overflow: hidden;
-    }
-    video, canvas {
-      position: absolute;
-      left: 50%;
-      top: 50%;
-      transform: translate(-50%, -50%);
-    }
-    #loading {
-      position: absolute;
-      top: 50%;
-      left: 50%;
-      transform: translate(-50%, -50%);
-      font-size: 1.5em;
-      color: yellow;
-    }
-    #info {
-      position: absolute;
-      top: 10px;
-      left: 10px;
-      font-size: 1.2em;
-      color: #fff;
-    }
-  </style>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Player Detection and Jersey Tracking Tool (Beta v1)</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            text-align: center;
+            background-color: #282c34;
+            color: white;
+        }
+
+        #video-container {
+            position: relative;
+            display: inline-block;
+            margin-top: 20px;
+            border-radius: 20px;
+            overflow: hidden;
+            box-shadow: 0 0 15px rgba(0, 0, 0, 0.5);
+        }
+
+        video {
+            border-radius: 20px;
+            width: 80%; /* Increased video size */
+            height: auto;
+        }
+
+        #overlay {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            pointer-events: none;
+        }
+
+        #loading {
+            font-size: 1.5em;
+            margin-top: 20px;
+        }
+    </style>
 </head>
 <body>
-  <div id="loading">Loading model, please wait...</div>
-  <div id="info"></div>
-  
-  <!-- Live video feed -->
-  <video id="video" width="640" height="480" autoplay playsinline></video>
-  <!-- Canvas for overlaying detection results -->
-  <canvas id="overlay" width="640" height="480"></canvas>
+    <h1>Player Detection and Jersey Number Tracking Tool (Beta v1)</h1>
+    <div id="loading">Loading... Please wait.</div>
+    <div id="video-container">
+        <video id="video" autoplay playsinline></video>
+        <canvas id="overlay"></canvas>
+    </div>
 
-  <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs"></script>
-  <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/posenet"></script>
-  <script src="https://cdn.jsdelivr.net/npm/tesseract.js@2"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/posenet"></script>
+    <script src="https://cdn.jsdelivr.net/npm/tesseract.js"></script>
+    <script>
+        const video = document.getElementById('video');
+        const overlay = document.getElementById('overlay');
+        const loadingText = document.getElementById('loading');
+        let canvasCtx = overlay.getContext('2d');
+        let net;
+        let lastPoseTime = 0;
+        let poseThrottleMs = 500; // Pose detection every 500ms
 
-  <script>
-    const video = document.getElementById('video');
-    const canvas = document.getElementById('overlay');
-    const ctx = canvas.getContext('2d');
-    const loadingDiv = document.getElementById('loading');
-    const infoDiv = document.getElementById('info');
-    
-    let isModelLoaded = false;
-    
-    // Load the model and start detection
-    async function detectPlayers() {
-      const net = await posenet.load();
-      isModelLoaded = true;
-      loadingDiv.style.display = 'none';
-      infoDiv.innerText = 'Model Loaded. Back Camera Active.';
+        // Load PoseNet and Tesseract.js models
+        async function init() {
+            try {
+                net = await posenet.load();
+                loadingText.style.display = 'none';
+                startVideoStream();
+            } catch (error) {
+                console.error("Error loading models:", error);
+            }
+        }
 
-      function detectFrame() {
-        if (!isModelLoaded) return;
+        function startVideoStream() {
+            navigator.mediaDevices.getUserMedia({
+                video: { facingMode: { exact: 'environment' } }
+            }).then(stream => {
+                video.srcObject = stream;
+                video.onloadedmetadata = () => {
+                    video.play();
+                    overlay.width = video.videoWidth;
+                    overlay.height = video.videoHeight;
+                    requestAnimationFrame(detectPlayers);
+                };
+            }).catch(err => console.error('Error accessing camera:', err));
+        }
 
-        net.estimateSinglePose(video, {
-          flipHorizontal: false,  // No mirroring for the back camera
-        }).then(pose => {
-          drawPose(pose);
-          requestAnimationFrame(detectFrame);
-        });
-      }
+        async function detectPlayers(timestamp) {
+            if (timestamp - lastPoseTime > poseThrottleMs) {
+                try {
+                    const pose = await net.estimateSinglePose(video, {
+                        flipHorizontal: false,
+                        decodingMethod: 'single-person'
+                    });
+                    drawPose(pose);
+                    detectJerseyNumber(pose);
+                    lastPoseTime = timestamp;
+                } catch (error) {
+                    console.error('Error in detection:', error);
+                }
+            }
+            requestAnimationFrame(detectPlayers); // Use animation frame for smoother rendering
+        }
 
-      detectFrame();
-    }
+        function drawPose(pose) {
+            canvasCtx.clearRect(0, 0, overlay.width, overlay.height);
 
-    // Draw detected pose and detect number
-    async function drawPose(pose) {
-      ctx.clearRect(0, 0, canvas.width, canvas.height);
-
-      pose.keypoints.forEach(async keypoint => {
-        if (keypoint.score > 0.5) {
-          const { y, x } = keypoint.position;
-          ctx.beginPath();
-          ctx.arc(x, y, 5, 0, 2 * Math.PI);
-          ctx.fillStyle = 'red';
-          ctx.fill();
-
-          // Improved - Dynamic number detection using OCR (Tesseract.js)
-          // Simulate a jersey area over the player's torso (roughly between shoulders and hips)
-          if (keypoint.part === "leftShoulder" || keypoint.part === "rightShoulder") {
-            // Draw a bounding box (representing the jersey area for OCR detection)
-            const width = 60, height = 30;
-            ctx.strokeStyle = 'yellow';
-            ctx.strokeRect(x - width / 2, y, width, height);
-
-            // Placeholder: In a real-world case, you'd crop this area from the video feed and process it with OCR.
-            const imageData = ctx.getImageData(x - width / 2, y, width, height);
-
-            // OCR detection (simulate reading from this region)
-            const recognizedNumber = await Tesseract.recognize(imageData, 'eng', {
-              logger: m => console.log(m)
+            const keypoints = pose.keypoints.filter(keypoint => keypoint.score > 0.5);
+            keypoints.forEach(keypoint => {
+                const { y, x } = keypoint.position;
+                canvasCtx.beginPath();
+                canvasCtx.arc(x, y, 5, 0, 2 * Math.PI);
+                canvasCtx.fillStyle = 'lime';
+                canvasCtx.fill();
             });
-
-            const number = recognizedNumber?.data?.text.trim() || '??';  // Use ?? if detection fails
-            ctx.fillStyle = 'yellow';
-            ctx.font = 'bold 20px Arial';
-            ctx.fillText(number, x - 10, y - 20);  // Place above the player head
-          }
         }
-      });
-    }
 
-    // Set up back camera feed
-    async function setupCamera() {
-      const constraints = {
-        video: {
-          facingMode: { exact: "environment" },  // Use the back camera
-          width: { ideal: 1920 },
-          height: { ideal: 1080 }
+        function detectJerseyNumber(pose) {
+            const leftShoulder = pose.keypoints.find(kp => kp.part === 'leftShoulder');
+            const rightShoulder = pose.keypoints.find(kp => kp.part === 'rightShoulder');
+
+            if (leftShoulder && rightShoulder) {
+                const boxWidth = rightShoulder.position.x - leftShoulder.position.x;
+                const boxHeight = boxWidth * 1.2;
+                const x = leftShoulder.position.x;
+                const y = leftShoulder.position.y;
+
+                canvasCtx.strokeStyle = 'red';
+                canvasCtx.strokeRect(x, y, boxWidth, boxHeight);
+
+                // Perform OCR only at intervals
+                if (lastPoseTime % (poseThrottleMs * 5) === 0) {
+                    const canvasSnapshot = document.createElement('canvas');
+                    canvasSnapshot.width = boxWidth;
+                    canvasSnapshot.height = boxHeight;
+                    canvasSnapshot.getContext('2d').drawImage(video, x, y, boxWidth, boxHeight, 0, 0, boxWidth, boxHeight);
+
+                    Tesseract.recognize(canvasSnapshot, 'eng', { logger: info => console.log(info) })
+                        .then(result => {
+                            const number = result.data.text.trim();
+                            canvasCtx.font = '20px Arial';
+                            canvasCtx.fillStyle = 'yellow';
+                            canvasCtx.fillText(number, (x + rightShoulder.position.x) / 2, y - 10);
+                        }).catch(err => console.error("Tesseract.js error:", err));
+                }
+            }
         }
-      };
-      
-      const stream = await navigator.mediaDevices.getUserMedia(constraints);
-      video.srcObject = stream;
-      
-      return new Promise((resolve) => {
-        video.onloadedmetadata = () => {
-          resolve(video);
-        };
-      });
-    }
 
-    setupCamera().then(() => {
-      detectPlayers();
-    });
-  </script>
+        init();
+    </script>
 </body>
 </html>
