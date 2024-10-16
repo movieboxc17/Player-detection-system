@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Live Player Detection and Number Overlay</title>
+  <title>Player Detection and Jersey Number Tracking</title>
   <style>
     body {
       text-align: center;
@@ -18,13 +18,26 @@
       top: 50%;
       transform: translate(-50%, -50%);
     }
-    canvas {
-      z-index: 1;
+    #loading {
+      position: absolute;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%);
+      font-size: 1.5em;
+      color: yellow;
+    }
+    #info {
+      position: absolute;
+      top: 10px;
+      left: 10px;
+      font-size: 1.2em;
+      color: #fff;
     }
   </style>
 </head>
 <body>
-  <h1>Football Player Detection and Tracking</h1>
+  <div id="loading">Loading model, please wait...</div>
+  <div id="info"></div>
   
   <!-- Live video feed -->
   <video id="video" width="640" height="480" autoplay playsinline></video>
@@ -33,19 +46,29 @@
 
   <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs"></script>
   <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/posenet"></script>
+  <script src="https://cdn.jsdelivr.net/npm/tesseract.js@2"></script>
 
   <script>
     const video = document.getElementById('video');
     const canvas = document.getElementById('overlay');
     const ctx = canvas.getContext('2d');
+    const loadingDiv = document.getElementById('loading');
+    const infoDiv = document.getElementById('info');
+    
+    let isModelLoaded = false;
     
     // Load the model and start detection
     async function detectPlayers() {
       const net = await posenet.load();
-      
+      isModelLoaded = true;
+      loadingDiv.style.display = 'none';
+      infoDiv.innerText = 'Model Loaded. Back Camera Active.';
+
       function detectFrame() {
+        if (!isModelLoaded) return;
+
         net.estimateSinglePose(video, {
-          flipHorizontal: false,  // Disable mirroring
+          flipHorizontal: false,  // No mirroring for the back camera
         }).then(pose => {
           drawPose(pose);
           requestAnimationFrame(detectFrame);
@@ -55,11 +78,11 @@
       detectFrame();
     }
 
-    // Draw detected pose and number (refined for better visuals)
-    function drawPose(pose) {
+    // Draw detected pose and detect number
+    async function drawPose(pose) {
       ctx.clearRect(0, 0, canvas.width, canvas.height);
 
-      pose.keypoints.forEach(keypoint => {
+      pose.keypoints.forEach(async keypoint => {
         if (keypoint.score > 0.5) {
           const { y, x } = keypoint.position;
           ctx.beginPath();
@@ -67,15 +90,32 @@
           ctx.fillStyle = 'red';
           ctx.fill();
 
-          // Placeholder for jersey number detection, improve to detect actual numbers
-          ctx.fillStyle = 'yellow';
-          ctx.font = 'bold 20px Arial';
-          ctx.fillText('10', x - 10, y - 15);  // Simulate jersey number above head
+          // Improved - Dynamic number detection using OCR (Tesseract.js)
+          // Simulate a jersey area over the player's torso (roughly between shoulders and hips)
+          if (keypoint.part === "leftShoulder" || keypoint.part === "rightShoulder") {
+            // Draw a bounding box (representing the jersey area for OCR detection)
+            const width = 60, height = 30;
+            ctx.strokeStyle = 'yellow';
+            ctx.strokeRect(x - width / 2, y, width, height);
+
+            // Placeholder: In a real-world case, you'd crop this area from the video feed and process it with OCR.
+            const imageData = ctx.getImageData(x - width / 2, y, width, height);
+
+            // OCR detection (simulate reading from this region)
+            const recognizedNumber = await Tesseract.recognize(imageData, 'eng', {
+              logger: m => console.log(m)
+            });
+
+            const number = recognizedNumber?.data?.text.trim() || '??';  // Use ?? if detection fails
+            ctx.fillStyle = 'yellow';
+            ctx.font = 'bold 20px Arial';
+            ctx.fillText(number, x - 10, y - 20);  // Place above the player head
+          }
         }
       });
     }
 
-    // Set up back camera feed with unmirrored video
+    // Set up back camera feed
     async function setupCamera() {
       const constraints = {
         video: {
