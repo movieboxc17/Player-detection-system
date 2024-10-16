@@ -10,6 +10,7 @@
       background-color: #2b2b2b;
       color: #fff;
       font-family: Arial, sans-serif;
+      overflow: hidden;
     }
     video, canvas {
       position: absolute;
@@ -17,13 +18,16 @@
       top: 50%;
       transform: translate(-50%, -50%);
     }
+    canvas {
+      z-index: 1;
+    }
   </style>
 </head>
 <body>
   <h1>Football Player Detection and Tracking</h1>
   
   <!-- Live video feed -->
-  <video id="video" width="640" height="480" autoplay playsinline muted></video>
+  <video id="video" width="640" height="480" autoplay playsinline></video>
   <!-- Canvas for overlaying detection results -->
   <canvas id="overlay" width="640" height="480"></canvas>
 
@@ -41,7 +45,7 @@
       
       function detectFrame() {
         net.estimateSinglePose(video, {
-          flipHorizontal: false
+          flipHorizontal: false,  // Disable mirroring
         }).then(pose => {
           drawPose(pose);
           requestAnimationFrame(detectFrame);
@@ -51,7 +55,7 @@
       detectFrame();
     }
 
-    // Draw detected pose and number (this could be expanded for more complexity)
+    // Draw detected pose and number (refined for better visuals)
     function drawPose(pose) {
       ctx.clearRect(0, 0, canvas.width, canvas.height);
 
@@ -63,20 +67,25 @@
           ctx.fillStyle = 'red';
           ctx.fill();
 
-          // Placeholder for jersey number detection
-          // In reality, you would replace this with number detection logic
+          // Placeholder for jersey number detection, improve to detect actual numbers
           ctx.fillStyle = 'yellow';
-          ctx.font = '20px Arial';
-          ctx.fillText('10', x - 10, y - 15);  // Simulate jersey number
+          ctx.font = 'bold 20px Arial';
+          ctx.fillText('10', x - 10, y - 15);  // Simulate jersey number above head
         }
       });
     }
 
-    // Set up webcam feed
+    // Set up back camera feed with unmirrored video
     async function setupCamera() {
-      const stream = await navigator.mediaDevices.getUserMedia({
-        video: true
-      });
+      const constraints = {
+        video: {
+          facingMode: { exact: "environment" },  // Use the back camera
+          width: { ideal: 1280 },
+          height: { ideal: 720 }
+        }
+      };
+      
+      const stream = await navigator.mediaDevices.getUserMedia(constraints);
       video.srcObject = stream;
       
       return new Promise((resolve) => {
